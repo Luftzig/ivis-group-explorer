@@ -1,4 +1,4 @@
-module Background exposing (main)
+module Main exposing (main)
 
 {-| Part of a composition used for the background of my Elm Europe talk.
 -}
