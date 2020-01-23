@@ -49,20 +49,20 @@ type alias Model =
     { students : Graph Entity ()
     , simulation : Force.State NodeId
     , hover : Maybe NodeId
-    , activeRules : List Rule
+    , activeRules : Rules
     }
+
+
+type alias Rules =
+    { tags : Bool }
 
 
 type Msg
     = Tick Time.Posix
     | ClickNode NodeId
     | HoverNode NodeId
-    | ChangeLinks (List Rule)
+    | ChangeRules Rules
     | StopHoverNode
-
-
-type Rule
-    = Tags
 
 
 nodeElement : Maybe NodeId -> Entity -> Svg Msg
@@ -135,8 +135,12 @@ toggleRule rule rules =
 
 view : Model -> Html Msg
 view model =
+    let
+        activeRules =
+            model.activeRules
+    in
     div []
-        [ button [ Html.Events.onClick <| ChangeLinks <| toggleRule Tags model.activeRules ] [ Html.text "Tags" ]
+        [ button [ Html.Events.onClick <| ChangeRules { activeRules | tags = not activeRules.tags } ] [ Html.text "Tags" ]
         , svg [ viewBox 0 0 w h ]
             [ g [ class [ "links" ] ] <|
                 List.map (linkElement model.students) <|
@@ -208,71 +212,30 @@ update msg model =
         StopHoverNode ->
             ( { model | hover = Nothing }, Cmd.none )
 
-        ChangeLinks rules ->
+        ChangeRules rules ->
             if model.activeRules == rules then
                 ( model, Cmd.none )
 
             else
                 ( { model
                     | simulation =
-                        Force.simulation
-                            (baseForces model.students ++ List.map (ruleForce model.students) rules)
+                        Force.reheat <|
+                            Force.simulation
+                                (baseForces model.students ++ ruleForce model.students rules)
                   }
                 , Cmd.none
                 )
 
 
-hasCommonInterest : ( Entity, Entity ) -> Bool
-hasCommonInterest ( e1, e2 ) =
-    Set.intersect e1.value.tags e2.value.tags |> Set.isEmpty |> not
+ruleForce graph { tags } =
+    if tags then
+        [ Graph.edges graph |> List.filterMap (toTagsLink graph) |> Force.customLinks 1 ]
+
+    else
+        []
 
 
-links : List Entity -> Force.Force NodeId
-links entities =
-    let
-        byInterests =
-            List.Extra.select entities |> List.concatMap linkByInterest |> Force.customLinks 1
-    in
-    byInterests
-
-
-linkByInterest : ( Entity, List Entity ) -> List { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
-linkByInterest ( e, es ) =
-    let
-        makeLink e2 =
-            let
-                intersection =
-                    Set.intersect e.value.tags e2.value.tags
-            in
-            if Set.isEmpty intersection then
-                Nothing
-
-            else
-                Just
-                    { source = e.id
-                    , target = e2.id
-                    , distance = 75 / (toFloat <| Set.size intersection)
-                    , strength = Nothing
-                    }
-    in
-    List.filterMap makeLink es
-
-
-ruleForces graph rules =
-    List.map (ruleForce graph) rules
-
-
-ruleForce graph rule =
-    case rule of
-        Tags ->
-            Graph.edges graph |> List.filterMap (toTagsLink graph) |> Force.customLinks 1
-
-
-toTagsLink :
-    Graph Entity ()
-    -> Edge ()
-    -> Maybe { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
-toTagsLink graph edge =
+commonTags graph edge =
     let
         source_ =
             Maybe.map (.node >> .label) <| Graph.get edge.from graph
@@ -288,19 +251,36 @@ toTagsLink graph edge =
             Nothing
 
         ( Just source, Just target ) ->
-            if Set.intersect source.value.tags target.value.tags |> Set.isEmpty then
+            Just
+                { count = Set.intersect source.value.tags target.value.tags |> Set.size
+                , source = source
+                , target = target
+                }
+
+
+toTagsLink :
+    Graph Entity ()
+    -> Edge ()
+    -> Maybe { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
+toTagsLink graph edge =
+    case commonTags graph edge of
+        Nothing ->
+            Nothing
+
+        Just { count, source, target } ->
+            if count == 0 then
                 Nothing
 
             else
-                Just { source = source.id, target = target.id, distance = 30, strength = Just 0.5 }
+                Just { source = source.id, target = target.id, distance = 75, strength = Just (0.3 * toFloat count) }
 
 
 baseForces graph =
     let
         toBaseLink { from, to } =
-            { source = from, target = to, distance = 60, strength = Just 0.01 }
+            { source = from, target = to, distance = 150, strength = Just 0.05 }
     in
-    [ Force.manyBodyStrength -120 <| List.map .id <| Graph.nodes graph
+    [ Force.manyBodyStrength -200 <| List.map .id <| Graph.nodes graph
     , Force.center (w / 2) (h / 2)
     , Force.customLinks 1 <| List.map toBaseLink <| Graph.edges graph
     ]
@@ -323,7 +303,7 @@ init _ =
     in
     ( { students = graph
       , simulation = Force.simulation <| baseForces graph
-      , activeRules = []
+      , activeRules = {tags = False}
       , hover = Nothing
       }
     , Cmd.none
