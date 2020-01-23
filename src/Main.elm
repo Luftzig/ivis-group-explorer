@@ -4,6 +4,7 @@ module Main exposing (main)
 -}
 
 import Color exposing (Color)
+import Dataset exposing (Student, students)
 import Force exposing (State)
 import Graph exposing (Edge, Graph, Node, NodeId)
 import IntDict
@@ -367,57 +368,55 @@ colorScale =
     Scale.sequential Scale.Color.viridisInterpolator ( 200, 700 )
 
 
-type alias CustomNode =
-    { rank : Int, name : String }
-
-
 type alias Entity =
-    Force.Entity NodeId { value : CustomNode }
+    Force.Entity NodeId { value : Student }
 
 
-init : Graph Entity ()
-init =
-    let
-        graph =
-            Graph.mapContexts
-                (\({ node, incoming, outgoing } as ctx) ->
-                    { incoming = incoming
-                    , outgoing = outgoing
-                    , node =
-                        { label =
-                            Force.entity node.id
-                                (CustomNode
-                                    (IntDict.size incoming + IntDict.size outgoing)
-                                    node.label
-                                )
-                        , id = node.id
-                        }
-                    }
-                )
-                miserablesGraph
-
-        links =
-            graph
-                |> Graph.edges
-                |> List.map
-                    (\{ from, to } ->
-                        { source = from
-                        , target = to
-                        , distance = 30
-                        , strength = Nothing
-                        }
-                    )
-
-        forces =
-            [ Force.customLinks 1 links
-            , Force.manyBodyStrength -30 <| List.map .id <| Graph.nodes graph
-            , Force.center (w / 2) (h / 2)
-            ]
-    in
-    Graph.nodes graph
-        |> List.map .label
-        |> Force.computeSimulation (Force.simulation forces)
-        |> updateGraphWithList graph
+--init : Graph Entity ()
+--init =
+--    let
+--        graph =
+--            Graph.mapContexts
+--                (\({ node, incoming, outgoing } as ctx) ->
+--                    { incoming = incoming
+--                    , outgoing = outgoing
+--                    , node =
+--                        { label =
+--                            Force.entity node.id
+--                                (CustomNode
+--                                    (IntDict.size incoming + IntDict.size outgoing)
+--                                    node.label
+--                                )
+--                        , id = node.id
+--                        }
+--                    }
+--                )
+--                miserablesGraph
+--            --Graph.fromNodesAndEdges <| List.map .alias students <| []
+--
+--
+--        links =
+--            graph
+--                |> Graph.edges
+--                |> List.map
+--                    (\{ from, to } ->
+--                        { source = from
+--                        , target = to
+--                        , distance = 30
+--                        , strength = Nothing
+--                        }
+--                    )
+--
+--        forces =
+--            [ Force.customLinks 1 links
+--            , Force.manyBodyStrength -30 <| List.map .id <| Graph.nodes graph
+--            , Force.center (w / 2) (h / 2)
+--            ]
+--    in
+--    Graph.nodes graph
+--        |> List.map .label
+--        |> Force.computeSimulation (Force.simulation forces)
+--        |> updateGraphWithList graph
 
 
 updateGraphWithList : Graph Entity () -> List Entity -> Graph Entity ()
@@ -437,27 +436,27 @@ updateContextWithValue nodeCtx value =
     { nodeCtx | node = { node | label = value } }
 
 
-linkElement : Graph Entity () -> Edge () -> Svg msg
-linkElement graph edge =
-    let
-        retrieveEntity =
-            Maybe.withDefault (Force.entity 0 (CustomNode 0 "")) << Maybe.map (.node >> .label)
-
-        source =
-            retrieveEntity <| Graph.get edge.from graph
-
-        target =
-            retrieveEntity <| Graph.get edge.to graph
-    in
-    line
-        [ strokeWidth 1
-        , stroke <| Scale.convert colorScale source.x
-        , x1 source.x
-        , y1 source.y
-        , x2 target.x
-        , y2 target.y
-        ]
-        []
+--linkElement : Graph Entity () -> Edge () -> Svg msg
+--linkElement graph edge =
+--    let
+--        retrieveEntity =
+--            Maybe.withDefault (Force.entity 0 (CustomNode 0 "")) << Maybe.map (.node >> .label)
+--
+--        source =
+--            retrieveEntity <| Graph.get edge.from graph
+--
+--        target =
+--            retrieveEntity <| Graph.get edge.to graph
+--    in
+--    line
+--        [ strokeWidth 1
+--        , stroke <| Scale.convert colorScale source.x
+--        , x1 source.x
+--        , y1 source.y
+--        , x2 target.x
+--        , y2 target.y
+--        ]
+--        []
 
 
 hexagon ( x, y ) size attrs =
@@ -482,37 +481,40 @@ nodeSize size node =
         ]
         [ title [] [ text node.value.name ] ]
 
+type alias Position a = { a | x : Float, y: Float }
 
-nodeElement node =
-    if node.label.value.rank < 5 then
-        nodeSize 4 node.label
+makeEntities : List Student -> List Entity
+makeEntities students =
+    let
+        nodes = List.indexedMap Force.entity students
 
-    else if node.label.value.rank < 9 then
-        nodeSize 7 node.label
-
-    else if modBy 2 node.label.value.rank == 0 then
-        g []
-            [ nodeSize 9 node.label
-            , circle
-                [ r 12
-                , cx node.label.x
-                , cy node.label.y
-                , fill FillNone
-                , stroke <| Scale.convert colorScale node.label.x
-                ]
-                []
+        forces = [ Force.manyBodyStrength -10 <| List.map .id nodes
+            , Force.center (w / 2) (h / 2)
             ]
+    in
+      Force.computeSimulation (Force.simulation forces ) nodes
 
-    else
-        nodeSize 10 node.label
+nodeElement : Entity -> Svg msg
+nodeElement node =
+      g []
+          [ circle
+              [ r 12
+              , cx node.x
+              , cy node.y
+              , fill FillNone
+              , stroke <| Scale.convert colorScale 0.5
+              ]
+              []
+          ]
 
 
 view model =
     svg [ viewBox 0 0 w h ]
-        [ g [ class [ "links" ] ] <| List.map (linkElement model) <| Graph.edges model
-        , g [ class [ "nodes" ] ] <| List.map nodeElement <| Graph.nodes model
+        [ -- g [ class [ "links" ] ] <| List.map (linkElement model) <| Graph.edges model
+         --, g [ class [ "nodes" ] ] <| List.map nodeElement <| Graph.nodes model
+         g [ class ["nodes"] ] <| List.map nodeElement <| makeEntities students
         ]
 
 
 main =
-    init |> view
+    view ()
