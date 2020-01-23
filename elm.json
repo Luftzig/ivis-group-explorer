@@ -13,6 +13,7 @@
             "elm/time": "1.0.0",
             "elm-community/graph": "6.0.0",
             "elm-community/intdict": "3.0.0",
+            "elm-community/list-extra": "8.2.3",
             "elm-community/typed-svg": "5.2.0",
             "elm-explorations/linear-algebra": "1.0.3",
             "gampleman/elm-visualization": "2.1.1"
@@ -24,7 +25,6 @@
             "elm/svg": "1.0.1",
             "elm/url": "1.0.0",
             "elm/virtual-dom": "1.0.2",
-            "elm-community/list-extra": "8.2.3",
             "folkertdev/elm-deque": "3.0.1",
             "folkertdev/one-true-path-experiment": "4.0.3",
             "folkertdev/svg-path-lowlevel": "3.0.0",
