@@ -125,14 +125,6 @@ nodeElement hovered node =
         )
 
 
-toggleRule rule rules =
-    if List.any ((==) rule) rules then
-        List.filter ((/=) rule) rules
-
-    else
-        rule :: rules
-
-
 view : Model -> Html Msg
 view model =
     let
@@ -140,7 +132,19 @@ view model =
             model.activeRules
     in
     div []
-        [ button [ Html.Events.onClick <| ChangeRules { activeRules | tags = not activeRules.tags } ] [ Html.text "Tags" ]
+        [ button
+            [ Html.Events.onClick <| ChangeRules { activeRules | tags = not activeRules.tags }
+            ]
+            [ Html.text
+                ("Tags "
+                    ++ (if activeRules.tags then
+                            "Active"
+
+                        else
+                            "Disabled"
+                       )
+                )
+            ]
         , svg [ viewBox 0 0 w h ]
             [ g [ class [ "links" ] ] <|
                 List.map (linkElement model.students) <|
@@ -219,9 +223,9 @@ update msg model =
             else
                 ( { model
                     | simulation =
-                        Force.reheat <|
-                            Force.simulation
-                                (baseForces model.students ++ ruleForce model.students rules)
+                        Force.simulation
+                            (baseForces model.students ++ ruleForce model.students rules)
+                    , activeRules = rules
                   }
                 , Cmd.none
                 )
@@ -278,9 +282,9 @@ toTagsLink graph edge =
 baseForces graph =
     let
         toBaseLink { from, to } =
-            { source = from, target = to, distance = 150, strength = Just 0.05 }
+            { source = from, target = to, distance = 200, strength = Just 0.01 }
     in
-    [ Force.manyBodyStrength -200 <| List.map .id <| Graph.nodes graph
+    [ Force.manyBodyStrength -30 <| List.map .id <| Graph.nodes graph
     , Force.center (w / 2) (h / 2)
     , Force.customLinks 1 <| List.map toBaseLink <| Graph.edges graph
     ]
@@ -303,7 +307,7 @@ init _ =
     in
     ( { students = graph
       , simulation = Force.simulation <| baseForces graph
-      , activeRules = {tags = False}
+      , activeRules = { tags = False }
       , hover = Nothing
       }
     , Cmd.none
