@@ -65,46 +65,40 @@ type Msg
     | StopHoverNode
 
 
+hoverElement : NodeContext Entity () -> Svg Msg
+hoverElement { node } =
+    g []
+        [ rect
+            [ x <| node.label.x - 60
+            , y <| node.label.y - 30
+            , fill <| Fill <| Color.white
+            , stroke <| Scale.convert colorScale 0.6
+            , width 120
+            , height 20
+            ]
+            []
+        , text_
+            [ x <| node.label.x
+            , y <| node.label.y - 15
+            , fontSize 10
+            , fill <| Fill <| Scale.convert colorScale 0.6
+            , textAnchor AnchorMiddle
+            ]
+            [ text <| String.join ", " <| Set.toList node.label.value.tags ]
+        ]
+
+
 nodeElement : Maybe NodeId -> Entity -> Svg Msg
 nodeElement hovered node =
     let
         initials =
             String.split " " node.value.alias |> List.map (String.left 1) |> String.concat
-
-        hover =
-            case hovered of
-                Just id ->
-                    if id == node.id then
-                        [ rect
-                            [ x <| node.x - 60
-                            , y <| node.y - 30
-                            , fill <| Fill <| Color.white
-                            , stroke <| Scale.convert colorScale 0.6
-                            , width 120
-                            , height 20
-                            ]
-                            []
-                        , text_
-                            [ x <| node.x
-                            , y <| node.y - 15
-                            , fontSize 10
-                            , fill <| Fill <| Scale.convert colorScale 0.6
-                            , textAnchor AnchorMiddle
-                            ]
-                            [ text <| String.join ", " <| Set.toList node.value.tags ]
-                        ]
-
-                    else
-                        []
-
-                Nothing ->
-                    []
     in
     g
         [ onMouseEnter <| HoverNode node.id
         , onMouseLeave StopHoverNode
         ]
-        ([ circle
+        [ circle
             [ r 12
             , cx node.x
             , cy node.y
@@ -112,7 +106,7 @@ nodeElement hovered node =
             , stroke <| Scale.convert colorScale 600
             ]
             []
-         , text_
+        , text_
             [ x node.x
             , y node.y
             , fontSize 10
@@ -120,9 +114,7 @@ nodeElement hovered node =
             , textAnchor AnchorMiddle
             ]
             [ text initials ]
-         ]
-            ++ hover
-        )
+        ]
 
 
 view : Model -> Html Msg
@@ -147,7 +139,7 @@ view model =
             ]
         , svg [ viewBox 0 0 w h ]
             [ g [ class [ "links" ] ] <|
-                List.map (linkElement model.students) <|
+                List.map (linkElement model.activeRules model.students) <|
                     Graph.edges model.students
             , g
                 [ class [ "nodes" ] ]
@@ -155,21 +147,45 @@ view model =
                 List.map (nodeElement model.hover) <|
                     List.map .label <|
                         Graph.nodes model.students
+            , Maybe.withDefault (g [] []) <|
+                Maybe.map hoverElement <|
+                    Maybe.andThen (\id -> Graph.get id model.students) <|
+                        model.hover
             ]
         ]
 
 
-linkElement : Graph Entity () -> Edge () -> Svg Msg
-linkElement graph edge =
+linkElement : Rules -> Graph Entity () -> Edge () -> Svg Msg
+linkElement { tags } graph edge =
     let
         source =
             Maybe.withDefault (Force.entity 0 emptyStudent) <| Maybe.map (.node >> .label) <| Graph.get edge.from graph
 
         target =
             Maybe.withDefault (Force.entity 0 emptyStudent) <| Maybe.map (.node >> .label) <| Graph.get edge.to graph
+
+        hasInCommon =
+            if tags then
+                commonTags graph edge
+
+            else
+                Nothing
+
+        highlightCommon =
+            case hasInCommon of
+                Nothing ->
+                    0
+
+                Just { count } ->
+                    count
     in
     line
-        [ strokeWidth 1
+        [ strokeWidth <|
+            if tags then
+                toFloat highlightCommon * 0.5
+
+            else
+                0.1
         , stroke (Color.rgb255 170 170 170)
         , x1 source.x
         , y1 source.y
