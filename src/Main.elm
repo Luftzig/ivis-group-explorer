@@ -9,7 +9,8 @@ import Color exposing (Color)
 import Dataset exposing (Student, emptyStudent, students)
 import Force exposing (State)
 import Graph exposing (Edge, Graph, Node, NodeContext, NodeId)
-import Html exposing (Html)
+import Html exposing (Html, button, div)
+import Html.Events
 import IntDict
 import List exposing (range)
 import List.Extra
@@ -48,6 +49,7 @@ type alias Model =
     { students : Graph Entity ()
     , simulation : Force.State NodeId
     , hover : Maybe NodeId
+    , activeRules : List Rule
     }
 
 
@@ -55,7 +57,12 @@ type Msg
     = Tick Time.Posix
     | ClickNode NodeId
     | HoverNode NodeId
+    | ChangeLinks (List Rule)
     | StopHoverNode
+
+
+type Rule
+    = Tags
 
 
 nodeElement : Maybe NodeId -> Entity -> Svg Msg
@@ -118,18 +125,29 @@ nodeElement hovered node =
         )
 
 
+toggleRule rule rules =
+    if List.any ((==) rule) rules then
+        List.filter ((/=) rule) rules
+
+    else
+        rule :: rules
+
+
 view : Model -> Html Msg
 view model =
-    svg [ viewBox 0 0 w h ]
-        [ g [ class [ "links" ] ] <|
-            List.map (linkElement model.students) <|
-                Graph.edges model.students
-        , g
-            [ class [ "nodes" ] ]
-          <|
-            List.map (nodeElement model.hover) <|
-                List.map .label <|
-                    Graph.nodes model.students
+    div []
+        [ button [ Html.Events.onClick <| ChangeLinks <| toggleRule Tags model.activeRules ] [ Html.text "Tags" ]
+        , svg [ viewBox 0 0 w h ]
+            [ g [ class [ "links" ] ] <|
+                List.map (linkElement model.students) <|
+                    Graph.edges model.students
+            , g
+                [ class [ "nodes" ] ]
+              <|
+                List.map (nodeElement model.hover) <|
+                    List.map .label <|
+                        Graph.nodes model.students
+            ]
         ]
 
 
@@ -190,6 +208,19 @@ update msg model =
         StopHoverNode ->
             ( { model | hover = Nothing }, Cmd.none )
 
+        ChangeLinks rules ->
+            if model.activeRules == rules then
+                ( model, Cmd.none )
+
+            else
+                ( { model
+                    | simulation =
+                        Force.simulation
+                            (baseForces model.students ++ List.map (ruleForce model.students) rules)
+                  }
+                , Cmd.none
+                )
+
 
 hasCommonInterest : ( Entity, Entity ) -> Bool
 hasCommonInterest ( e1, e2 ) =
@@ -227,6 +258,54 @@ linkByInterest ( e, es ) =
     List.filterMap makeLink es
 
 
+ruleForces graph rules =
+    List.map (ruleForce graph) rules
+
+
+ruleForce graph rule =
+    case rule of
+        Tags ->
+            Graph.edges graph |> List.filterMap (toTagsLink graph) |> Force.customLinks 1
+
+
+toTagsLink :
+    Graph Entity ()
+    -> Edge ()
+    -> Maybe { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
+toTagsLink graph edge =
+    let
+        source_ =
+            Maybe.map (.node >> .label) <| Graph.get edge.from graph
+
+        target_ =
+            Maybe.map (.node >> .label) <| Graph.get edge.to graph
+    in
+    case ( source_, target_ ) of
+        ( Nothing, _ ) ->
+            Nothing
+
+        ( _, Nothing ) ->
+            Nothing
+
+        ( Just source, Just target ) ->
+            if Set.intersect source.value.tags target.value.tags |> Set.isEmpty then
+                Nothing
+
+            else
+                Just { source = source.id, target = target.id, distance = 30, strength = Just 0.5 }
+
+
+baseForces graph =
+    let
+        toBaseLink { from, to } =
+            { source = from, target = to, distance = 60, strength = Just 0.01 }
+    in
+    [ Force.manyBodyStrength -120 <| List.map .id <| Graph.nodes graph
+    , Force.center (w / 2) (h / 2)
+    , Force.customLinks 1 <| List.map toBaseLink <| Graph.edges graph
+    ]
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
     let
@@ -241,17 +320,14 @@ init _ =
                     |> List.Extra.uniquePairs
                     |> List.map (\( n1, n2 ) -> { from = n1, to = n2, label = () })
                 )
-
-        toLink { from, to } =
-            ( from, to )
-
-        forces =
-            [ Force.manyBodyStrength -120 <| List.map .id nodes
-            , Force.center (w / 2) (h / 2)
-            , Force.links <| List.map toLink <| Graph.edges graph
-            ]
     in
-    ( { students = graph, simulation = Force.simulation forces, hover = Nothing }, Cmd.none )
+    ( { students = graph
+      , simulation = Force.simulation <| baseForces graph
+      , activeRules = []
+      , hover = Nothing
+      }
+    , Cmd.none
+    )
 
 
 main =
