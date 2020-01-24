@@ -22,7 +22,7 @@ import TypedSvg exposing (circle, g, line, polygon, rect, svg, text_, title)
 import TypedSvg.Attributes exposing (class, fill, fillOpacity, points, stroke, textAnchor, viewBox)
 import TypedSvg.Attributes.InPx exposing (cx, cy, dx, dy, fontSize, height, r, strokeWidth, width, x, x1, x2, y, y1, y2)
 import TypedSvg.Core exposing (Svg, text)
-import TypedSvg.Events exposing (onMouseEnter, onMouseLeave)
+import TypedSvg.Events exposing (onClick, onMouseEnter, onMouseLeave)
 import TypedSvg.Types exposing (AnchorAlignment(..), Fill(..), Opacity)
 
 
@@ -38,7 +38,7 @@ h =
 
 colorScale : SequentialScale Color
 colorScale =
-    Scale.sequential Scale.Color.viridisInterpolator ( 200, 700 )
+    Scale.sequential Scale.Color.viridisInterpolator ( 0, 100 )
 
 
 type alias Entity =
@@ -72,7 +72,7 @@ hoverElement { node } =
             [ x <| node.label.x - 60
             , y <| node.label.y - 30
             , fill <| Fill <| Color.white
-            , stroke <| Scale.convert colorScale 0.6
+            , stroke <| Scale.convert colorScale 60
             , width 120
             , height 20
             ]
@@ -81,7 +81,7 @@ hoverElement { node } =
             [ x <| node.label.x
             , y <| node.label.y - 15
             , fontSize 10
-            , fill <| Fill <| Scale.convert colorScale 0.6
+            , fill <| Fill <| Scale.convert colorScale 60
             , textAnchor AnchorMiddle
             ]
             [ text <| String.join ", " <| Set.toList node.label.value.tags ]
@@ -97,20 +97,21 @@ nodeElement hovered node =
     g
         [ onMouseEnter <| HoverNode node.id
         , onMouseLeave StopHoverNode
+        , onClick <| ClickNode node.id
         ]
         [ circle
             [ r 12
             , cx node.x
             , cy node.y
-            , fill <| Fill <| Scale.convert colorScale 200
-            , stroke <| Scale.convert colorScale 600
+            , fill <| Fill <| Scale.convert colorScale 0
+            , stroke <| Scale.convert colorScale 90
             ]
             []
         , text_
             [ x node.x
             , y node.y
             , fontSize 10
-            , fill <| Fill <| Scale.convert colorScale 650
+            , fill <| Fill <| Scale.convert colorScale 95
             , textAnchor AnchorMiddle
             ]
             [ text initials ]
@@ -139,7 +140,7 @@ view model =
             ]
         , svg [ viewBox 0 0 w h ]
             [ g [ class [ "links" ] ] <|
-                List.map (linkElement model.activeRules model.students) <|
+                List.map (linkElement model.hover model.activeRules model.students) <|
                     Graph.edges model.students
             , g
                 [ class [ "nodes" ] ]
@@ -155,14 +156,22 @@ view model =
         ]
 
 
-linkElement : Rules -> Graph Entity () -> Edge () -> Svg Msg
-linkElement { tags } graph edge =
+linkElement : Maybe NodeId -> Rules -> Graph Entity () -> Edge () -> Svg Msg
+linkElement hovered { tags } graph edge =
     let
         source =
             Maybe.withDefault (Force.entity 0 emptyStudent) <| Maybe.map (.node >> .label) <| Graph.get edge.from graph
 
         target =
             Maybe.withDefault (Force.entity 0 emptyStudent) <| Maybe.map (.node >> .label) <| Graph.get edge.to graph
+
+        isHovered =
+            case hovered of
+                Just id ->
+                    id == source.id || id == target.id
+
+                Nothing ->
+                    False
 
         hasInCommon =
             if tags then
@@ -186,7 +195,13 @@ linkElement { tags } graph edge =
 
             else
                 0.1
-        , stroke (Color.rgb255 170 170 170)
+        , stroke
+            (if isHovered && highlightCommon > 0 then
+                Scale.convert colorScale 60
+
+             else
+                Color.rgb255 170 170 170
+            )
         , x1 source.x
         , y1 source.y
         , x2 target.x
@@ -213,6 +228,26 @@ updateGraphWithList =
     List.foldr (\node graph -> Graph.update node.id (graphUpdater node) graph)
 
 
+centerNode : Maybe (NodeContext Entity ()) -> Maybe (NodeContext Entity ())
+centerNode mContext =
+    case mContext of
+        Just context ->
+            let
+                node =
+                    context.node
+
+                label =
+                    node.label
+
+                newLabel =
+                    { label | x = w / 2, y = h / 2 }
+            in
+            Just { context | node = { node | label = newLabel } }
+
+        Nothing ->
+            Nothing
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -224,7 +259,12 @@ update msg model =
             ( { model | simulation = newState, students = updateGraphWithList model.students newStudents }, Cmd.none )
 
         ClickNode id ->
-            ( model, Cmd.none )
+            ( { model
+                | students = Graph.update id centerNode model.students
+                , simulation = Force.reheat model.simulation
+              }
+            , Cmd.none
+            )
 
         HoverNode id ->
             ( { model | hover = Just id }, Cmd.none )
@@ -247,12 +287,27 @@ update msg model =
                 )
 
 
-ruleForce graph { tags } =
-    if tags then
-        [ Graph.edges graph |> List.filterMap (toTagsLink graph) |> Force.customLinks 1 ]
+baseForce graph =
+    let
+        toBaseLink { from, to } =
+            { source = from, target = to, distance = 200, strength = Just 0.01 }
+    in
+    Force.customLinks 1 <| List.map toBaseLink <| Graph.edges graph
 
-    else
-        []
+
+ruleForce graph { tags } =
+    List.concat
+        [ if not tags then
+            [ baseForce graph ]
+
+          else
+            []
+        , if tags then
+            [ Graph.edges graph |> List.filterMap (toTagsLink graph) |> Force.customLinks 1 ]
+
+          else
+            []
+        ]
 
 
 commonTags graph edge =
@@ -292,17 +347,12 @@ toTagsLink graph edge =
                 Nothing
 
             else
-                Just { source = source.id, target = target.id, distance = 75, strength = Just (0.3 * toFloat count) }
+                Just { source = source.id, target = target.id, distance = 125, strength = Just (0.3 * toFloat count) }
 
 
 baseForces graph =
-    let
-        toBaseLink { from, to } =
-            { source = from, target = to, distance = 200, strength = Just 0.01 }
-    in
     [ Force.manyBodyStrength -30 <| List.map .id <| Graph.nodes graph
     , Force.center (w / 2) (h / 2)
-    , Force.customLinks 1 <| List.map toBaseLink <| Graph.edges graph
     ]
 
 
@@ -322,7 +372,7 @@ init _ =
                 )
     in
     ( { students = graph
-      , simulation = Force.simulation <| baseForces graph
+      , simulation = Force.simulation <| (baseForce graph :: baseForces graph)
       , activeRules = { tags = False }
       , hover = Nothing
       }
