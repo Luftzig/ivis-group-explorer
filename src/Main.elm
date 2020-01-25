@@ -12,7 +12,7 @@ import Graph exposing (Edge, Graph, Node, NodeContext, NodeId)
 import Html exposing (Html, button, div)
 import Html.Events
 import IntDict
-import List exposing (range)
+import List exposing (range, repeat)
 import List.Extra
 import Scale exposing (SequentialScale)
 import Scale.Color
@@ -35,7 +35,14 @@ h : Float
 h =
     640
 
-baseDistance = 200
+
+baseDistance =
+    250
+
+
+closeDistance =
+    100
+
 
 colorScale : SequentialScale Color
 colorScale =
@@ -203,7 +210,7 @@ view model =
 
 
 linkElement : Maybe NodeId -> Rules -> Graph Entity () -> Edge () -> Svg Msg
-linkElement hovered { tags } graph edge =
+linkElement hovered { tags, visualization } graph edge =
     let
         source =
             Maybe.withDefault (Force.entity 0 emptyStudent) <| Maybe.map (.node >> .label) <| Graph.get edge.from graph
@@ -234,10 +241,11 @@ linkElement hovered { tags } graph edge =
                 Just { count } ->
                     count
     in
+    if tags || visualization /= Inactive then
     line
         [ strokeWidth <|
             if tags then
-                toFloat highlightCommon * 0.5
+                toFloat highlightCommon * 1
 
             else
                 0.1
@@ -254,6 +262,7 @@ linkElement hovered { tags } graph edge =
         , y2 target.y
         ]
         []
+    else g [] []
 
 
 updateContextWithValue : NodeContext Entity () -> Entity -> NodeContext Entity ()
@@ -349,7 +358,7 @@ ruleForce graph { tags, visualization } =
           else
             []
         , if tags then
-            [ Graph.edges graph |> List.filterMap (toTagsLink graph) |> Force.customLinks 1 ]
+            [ Graph.edges graph |> List.concatMap (toTagsLink graph) |> Force.customLinks 1 ]
 
           else
             []
@@ -359,26 +368,19 @@ ruleForce graph { tags, visualization } =
 
             Similar ->
                 [ Graph.edges graph
-                    |> List.filterMap (similarSkillLink .visualizationSkill graph)
+                    |> List.concatMap (similarSkillLink .visualizationSkill graph)
                     |> Force.customLinks 1
                 ]
 
             Complementary ->
                 [ Graph.edges graph
-                    |> List.filterMap (complementarySkillLink .visualizationSkill graph)
+                    |> List.concatMap (complementarySkillLink .visualizationSkill graph)
                     |> Force.customLinks 1
                 ]
         ]
 
 
 commonTags graph edge =
-    let
-        source_ =
-            Maybe.map (.node >> .label) <| Graph.get edge.from graph
-
-        target_ =
-            Maybe.map (.node >> .label) <| Graph.get edge.to graph
-    in
     case getEdgeEntities graph edge of
         Nothing ->
             Nothing
@@ -415,11 +417,15 @@ type alias CustomLink =
     { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
 
 
-similarSkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> Maybe CustomLink
+closeLink source target = { source = source.id, target = target.id, distance = closeDistance, strength = Nothing}
+
+baseLink source target = { source = source.id, target = target.id, distance = baseDistance, strength = Nothing}
+
+similarSkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> List CustomLink
 similarSkillLink getSkill graph edge =
     case getEdgeEntities graph edge of
         Nothing ->
-            Nothing
+            []
 
         Just { source, target } ->
             let
@@ -433,17 +439,17 @@ similarSkillLink getSkill graph edge =
                     abs (sourceSkill - targetSkill)
             in
             if distance <= 3 && sourceSkill >= 0 && targetSkill >= 0 then
-                Just { source = source.id, target = target.id, distance = baseDistance / toFloat (distance + 1), strength = Nothing }
+                repeat distance <| closeLink source target
 
             else
-                Nothing
+                [baseLink source target]
 
 
-complementarySkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> Maybe CustomLink
+complementarySkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> List CustomLink
 complementarySkillLink getSkill graph edge =
     case getEdgeEntities graph edge of
         Nothing ->
-            Nothing
+            []
 
         Just { source, target } ->
             let
@@ -460,23 +466,26 @@ complementarySkillLink getSkill graph edge =
                     abs (avg - 5)
             in
             if distance <= 3 && sourceSkill >= 0 && targetSkill >= 0 then
-                Just { source = source.id, target = target.id, distance = 50 * (distance + 1), strength = Nothing }
+                repeat (3 - round distance) <| closeLink source target
 
             else
-                Nothing
+                [baseLink source target]
 
 
 toTagsLink :
     Graph Entity ()
     -> Edge ()
-    -> Maybe CustomLink
+    -> List CustomLink
 toTagsLink graph edge =
     case commonTags graph edge of
         Nothing ->
-            Nothing
+            []
 
         Just { count, source, target } ->
-            Just { source = source.id, target = target.id, distance = baseDistance / toFloat (count + 1), strength =  Nothing }
+            if count > 0 then
+              repeat count <| closeLink source target
+            else
+              [baseLink source target]
 
 
 baseForces graph =
