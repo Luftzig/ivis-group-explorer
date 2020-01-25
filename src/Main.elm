@@ -18,9 +18,9 @@ import Scale exposing (SequentialScale)
 import Scale.Color
 import Set
 import Time
-import TypedSvg exposing (circle, g, line, polygon, rect, svg, text_, title)
+import TypedSvg exposing (circle, g, line, polygon, rect, svg, text_, title, tspan)
 import TypedSvg.Attributes exposing (class, fill, fillOpacity, points, stroke, textAnchor, viewBox)
-import TypedSvg.Attributes.InPx exposing (cx, cy, dx, dy, fontSize, height, r, strokeWidth, width, x, x1, x2, y, y1, y2)
+import TypedSvg.Attributes.InPx exposing (cx, cy, dx, dy, fontSize, height, r, strokeWidth, textLength, width, x, x1, x2, y, y1, y2)
 import TypedSvg.Core exposing (Svg, text)
 import TypedSvg.Events exposing (onClick, onMouseEnter, onMouseLeave)
 import TypedSvg.Types exposing (AnchorAlignment(..), Fill(..), Opacity)
@@ -83,24 +83,45 @@ type Msg
 
 hoverElement : NodeContext Entity () -> Svg Msg
 hoverElement { node } =
+    let
+        student =
+            node.label.value
+
+        boxWidth =
+            150
+
+        boxHeight =
+            30
+    in
     g []
         [ rect
-            [ x <| node.label.x - 60
-            , y <| node.label.y - 30
+            [ x <| node.label.x - (boxWidth / 2)
+            , y <| node.label.y - (boxHeight + 10)
             , fill <| Fill <| Color.white
             , stroke <| Scale.convert colorScale 60
-            , width 120
-            , height 20
+            , width boxWidth
+            , height boxHeight
             ]
             []
         , text_
             [ x <| node.label.x
-            , y <| node.label.y - 15
+            , y <| node.label.y - boxHeight
             , fontSize 10
             , fill <| Fill <| Scale.convert colorScale 60
             , textAnchor AnchorMiddle
             ]
-            [ text <| String.join ", " <| Set.toList node.label.value.tags ]
+            [ tspan [ x node.label.x ]
+                [ text <| student.alias
+                , text " Vis: "
+                , text <| String.fromInt student.visualizationSkill
+                ]
+            , tspan
+                [ x node.label.x
+                , dy (boxHeight / 2)
+                , textLength boxWidth
+                ]
+                [ text <| String.join ", " <| Set.toList student.tags ]
+            ]
         ]
 
 
@@ -242,27 +263,29 @@ linkElement hovered { tags, visualization } graph edge =
                     count
     in
     if tags || visualization /= Inactive then
-    line
-        [ strokeWidth <|
-            if tags then
-                toFloat highlightCommon * 1
+        line
+            [ strokeWidth <|
+                if tags then
+                    toFloat highlightCommon * 1
 
-            else
-                0.1
-        , stroke
-            (if isHovered && highlightCommon > 0 then
-                Scale.convert colorScale 60
+                else
+                    0.1
+            , stroke
+                (if isHovered && highlightCommon > 0 then
+                    Scale.convert colorScale 60
 
-             else
-                Color.rgb255 170 170 170
-            )
-        , x1 source.x
-        , y1 source.y
-        , x2 target.x
-        , y2 target.y
-        ]
-        []
-    else g [] []
+                 else
+                    Color.rgb255 170 170 170
+                )
+            , x1 source.x
+            , y1 source.y
+            , x2 target.x
+            , y2 target.y
+            ]
+            []
+
+    else
+        g [] []
 
 
 updateContextWithValue : NodeContext Entity () -> Entity -> NodeContext Entity ()
@@ -417,9 +440,13 @@ type alias CustomLink =
     { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
 
 
-closeLink source target = { source = source.id, target = target.id, distance = closeDistance, strength = Nothing}
+closeLink source target =
+    { source = source.id, target = target.id, distance = closeDistance, strength = Nothing }
 
-baseLink source target = { source = source.id, target = target.id, distance = baseDistance, strength = Nothing}
+
+baseLink source target =
+    { source = source.id, target = target.id, distance = baseDistance, strength = Nothing }
+
 
 similarSkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> List CustomLink
 similarSkillLink getSkill graph edge =
@@ -442,7 +469,7 @@ similarSkillLink getSkill graph edge =
                 repeat distance <| closeLink source target
 
             else
-                [baseLink source target]
+                [ baseLink source target ]
 
 
 complementarySkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> List CustomLink
@@ -469,7 +496,7 @@ complementarySkillLink getSkill graph edge =
                 repeat (3 - round distance) <| closeLink source target
 
             else
-                [baseLink source target]
+                [ baseLink source target ]
 
 
 toTagsLink :
@@ -483,9 +510,10 @@ toTagsLink graph edge =
 
         Just { count, source, target } ->
             if count > 0 then
-              repeat count <| closeLink source target
+                repeat count <| closeLink source target
+
             else
-              [baseLink source target]
+                [ baseLink source target ]
 
 
 baseForces graph =

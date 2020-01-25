@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "build": "parcel build src/index.html"
+    "build": "parcel build src/index.html",
+    "start": "parcel src/index.html"
   },
   "devDependencies": {
     "elm": "^0.19.1-3",
