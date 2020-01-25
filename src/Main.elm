@@ -261,21 +261,39 @@ linkElement hovered { tags, visualization } graph edge =
 
                 Just { count } ->
                     count
+
+        visDistance =
+            abs (source.value.visualizationSkill - target.value.visualizationSkill)
+
+        strokeWidth_ =
+            if tags then
+                toFloat highlightCommon
+
+            else if visualization == Complementary && visDistance > 3 then
+                toFloat (visDistance - 3) * 0.7
+
+            else if visualization == Similar && visDistance <= 3 then
+                toFloat (4 - visDistance) * 0.7
+
+            else
+                0
     in
     if tags || visualization /= Inactive then
         line
-            [ strokeWidth <|
-                if tags then
-                    toFloat highlightCommon * 1
-
-                else
-                    0.1
+            [ strokeWidth <| strokeWidth_
             , stroke
-                (if isHovered && highlightCommon > 0 then
+                (if
+                    isHovered
+                        && (highlightCommon
+                                > 0
+                                || (visualization == Complementary && visDistance > 3)
+                                || (visualization == Similar && visDistance <= 3)
+                           )
+                 then
                     Scale.convert colorScale 60
 
                  else
-                    Color.rgb255 170 170 170
+                    Color.rgba 0.7 0.7 0.7 0.7
                 )
             , x1 source.x
             , y1 source.y
@@ -285,7 +303,7 @@ linkElement hovered { tags, visualization } graph edge =
             []
 
     else
-        g [] []
+        text ""
 
 
 updateContextWithValue : NodeContext Entity () -> Entity -> NodeContext Entity ()
