@@ -35,6 +35,7 @@ h : Float
 h =
     640
 
+baseDistance = 200
 
 colorScale : SequentialScale Color
 colorScale =
@@ -53,8 +54,16 @@ type alias Model =
     }
 
 
+type SkillRule
+    = Inactive
+    | Complementary
+    | Similar
+
+
 type alias Rules =
-    { tags : Bool }
+    { tags : Bool
+    , visualization : SkillRule
+    }
 
 
 type Msg
@@ -118,6 +127,52 @@ nodeElement hovered node =
         ]
 
 
+tagsButton rules =
+    button
+        [ Html.Events.onClick <| ChangeRules { rules | tags = not rules.tags }
+        ]
+        [ Html.text
+            ("Tags "
+                ++ (if rules.tags then
+                        "Active"
+
+                    else
+                        "Disabled"
+                   )
+            )
+        ]
+
+
+visualizationButton rules =
+    let
+        nextMode rule =
+            case rule of
+                Inactive ->
+                    Complementary
+
+                Complementary ->
+                    Similar
+
+                Similar ->
+                    Inactive
+
+        label rule =
+            case rule of
+                Inactive ->
+                    "Inactive"
+
+                Complementary ->
+                    "Complementary"
+
+                Similar ->
+                    "Similar"
+    in
+    button
+        [ Html.Events.onClick <| ChangeRules { rules | visualization = nextMode rules.visualization } ]
+        [ Html.text ("Visualization Skill: " ++ label rules.visualization)
+        ]
+
+
 view : Model -> Html Msg
 view model =
     let
@@ -125,18 +180,9 @@ view model =
             model.activeRules
     in
     div []
-        [ button
-            [ Html.Events.onClick <| ChangeRules { activeRules | tags = not activeRules.tags }
-            ]
-            [ Html.text
-                ("Tags "
-                    ++ (if activeRules.tags then
-                            "Active"
-
-                        else
-                            "Disabled"
-                       )
-                )
+        [ div []
+            [ tagsButton activeRules
+            , visualizationButton activeRules
             ]
         , svg [ viewBox 0 0 w h ]
             [ g [ class [ "links" ] ] <|
@@ -290,14 +336,14 @@ update msg model =
 baseForce graph =
     let
         toBaseLink { from, to } =
-            { source = from, target = to, distance = 200, strength = Just 0.01 }
+            { source = from, target = to, distance = baseDistance, strength = Nothing }
     in
     Force.customLinks 1 <| List.map toBaseLink <| Graph.edges graph
 
 
-ruleForce graph { tags } =
+ruleForce graph { tags, visualization } =
     List.concat
-        [ if not tags then
+        [ if not tags && visualization == Inactive then
             [ baseForce graph ]
 
           else
@@ -307,10 +353,46 @@ ruleForce graph { tags } =
 
           else
             []
+        , case visualization of
+            Inactive ->
+                []
+
+            Similar ->
+                [ Graph.edges graph
+                    |> List.filterMap (similarSkillLink .visualizationSkill graph)
+                    |> Force.customLinks 1
+                ]
+
+            Complementary ->
+                [ Graph.edges graph
+                    |> List.filterMap (complementarySkillLink .visualizationSkill graph)
+                    |> Force.customLinks 1
+                ]
         ]
 
 
 commonTags graph edge =
+    let
+        source_ =
+            Maybe.map (.node >> .label) <| Graph.get edge.from graph
+
+        target_ =
+            Maybe.map (.node >> .label) <| Graph.get edge.to graph
+    in
+    case getEdgeEntities graph edge of
+        Nothing ->
+            Nothing
+
+        Just { source, target } ->
+            Just
+                { count = Set.intersect source.value.tags target.value.tags |> Set.size
+                , source = source
+                , target = target
+                }
+
+
+getEdgeEntities : Graph Entity () -> Edge () -> Maybe { source : Entity, target : Entity }
+getEdgeEntities graph edge =
     let
         source_ =
             Maybe.map (.node >> .label) <| Graph.get edge.from graph
@@ -326,28 +408,75 @@ commonTags graph edge =
             Nothing
 
         ( Just source, Just target ) ->
-            Just
-                { count = Set.intersect source.value.tags target.value.tags |> Set.size
-                , source = source
-                , target = target
-                }
+            Just { source = source, target = target }
+
+
+type alias CustomLink =
+    { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
+
+
+similarSkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> Maybe CustomLink
+similarSkillLink getSkill graph edge =
+    case getEdgeEntities graph edge of
+        Nothing ->
+            Nothing
+
+        Just { source, target } ->
+            let
+                sourceSkill =
+                    getSkill source.value
+
+                targetSkill =
+                    getSkill target.value
+
+                distance =
+                    abs (sourceSkill - targetSkill)
+            in
+            if distance <= 3 && sourceSkill >= 0 && targetSkill >= 0 then
+                Just { source = source.id, target = target.id, distance = baseDistance / toFloat (distance + 1), strength = Nothing }
+
+            else
+                Nothing
+
+
+complementarySkillLink : (Student -> Int) -> Graph Entity () -> Edge () -> Maybe CustomLink
+complementarySkillLink getSkill graph edge =
+    case getEdgeEntities graph edge of
+        Nothing ->
+            Nothing
+
+        Just { source, target } ->
+            let
+                sourceSkill =
+                    getSkill source.value
+
+                targetSkill =
+                    getSkill target.value
+
+                avg =
+                    toFloat (sourceSkill + targetSkill) / 2
+
+                distance =
+                    abs (avg - 5)
+            in
+            if distance <= 3 && sourceSkill >= 0 && targetSkill >= 0 then
+                Just { source = source.id, target = target.id, distance = 50 * (distance + 1), strength = Nothing }
+
+            else
+                Nothing
 
 
 toTagsLink :
     Graph Entity ()
     -> Edge ()
-    -> Maybe { source : NodeId, target : NodeId, distance : Float, strength : Maybe Float }
+    -> Maybe CustomLink
 toTagsLink graph edge =
     case commonTags graph edge of
         Nothing ->
             Nothing
 
         Just { count, source, target } ->
-            if count == 0 then
-                Nothing
-
-            else
-                Just { source = source.id, target = target.id, distance = 125, strength = Just (0.3 * toFloat count) }
+            Just { source = source.id, target = target.id, distance = baseDistance / toFloat (count + 1), strength =  Nothing }
 
 
 baseForces graph =
@@ -373,7 +502,7 @@ init _ =
     in
     ( { students = graph
       , simulation = Force.simulation <| (baseForce graph :: baseForces graph)
-      , activeRules = { tags = False }
+      , activeRules = { tags = False, visualization = Inactive }
       , hover = Nothing
       }
     , Cmd.none
